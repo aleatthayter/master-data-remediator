@@ -1,0 +1,5 @@
+tag,description,equipment_type,location,status
+PP-001,Pump Primary Feed,Centrifugal Pump,Plant 1,Active
+MV-042,Motor Drive Unit,Electric Motor,Plant 2,Active
+HX-103,Heat Exchanger Main,Shell and Tube,Plant 1,Active
+PP-002,Feed Pump Secondary,Centrifugal Pump,Plant 1,Inactive
