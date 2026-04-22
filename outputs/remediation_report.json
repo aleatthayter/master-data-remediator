@@ -1,0 +1,74 @@
+[
+  {
+    "tag": "HX-103",
+    "discrepancies_found": [
+      {
+        "field": "description",
+        "sap_value": "Heat Exchanger Main",
+        "aveva_value": "Main Heat Exchanger"
+      }
+    ],
+    "suggested_fixes": [
+      {
+        "field": "description",
+        "suggested_value": "Main Heat Exchanger",
+        "reasoning": "This format follows standard equipment naming conventions where the functional descriptor (Main) precedes the equipment type (Heat Exchanger), providing better clarity in system searches and documentation. It is also the AVEVA value, which typically represents the more recent or authoritative source in integrated systems."
+      }
+    ],
+    "status": "PENDING APPROVAL"
+  },
+  {
+    "tag": "MV-042",
+    "discrepancies_found": [
+      {
+        "field": "description",
+        "sap_value": "Motor Drive Unit",
+        "aveva_value": "Electric Motor Drive"
+      }
+    ],
+    "suggested_fixes": [
+      {
+        "field": "description",
+        "suggested_value": "Electric Motor Drive Unit",
+        "reasoning": "This combines both system values into a more complete and technically accurate description. 'Electric Motor Drive Unit' encompasses the motor function (from AVEVA) and the drive unit function (from SAP), providing clarity that this is an electric motor with integrated drive capabilities, which is the standard terminology for such equipment in mining and energy operations."
+      }
+    ],
+    "status": "PENDING APPROVAL"
+  },
+  {
+    "tag": "PP-001",
+    "discrepancies_found": [
+      {
+        "field": "description",
+        "sap_value": "Pump Primary Feed",
+        "aveva_value": "Primary Feed Pump"
+      }
+    ],
+    "suggested_fixes": [
+      {
+        "field": "description",
+        "suggested_value": "Primary Feed Pump",
+        "reasoning": "This format follows standard equipment naming conventions by placing the functional category (Pump) at the end, which is more consistent with industry standards and AVEVA system practices. It provides clearer hierarchical information with the primary modifier followed by the functional type."
+      }
+    ],
+    "status": "PENDING APPROVAL"
+  },
+  {
+    "tag": "PP-002",
+    "discrepancies_found": [
+      {
+        "field": "description",
+        "sap_value": "Feed Pump Secondary",
+        "aveva_value": "Secondary Feed Pump"
+      }
+    ],
+    "suggested_fixes": [
+      {
+        "field": "description",
+        "suggested_value": "Secondary Feed Pump",
+        "reasoning": "This follows standard equipment naming convention by placing the functional descriptor (Feed Pump) after the qualifier (Secondary), which is more consistent with technical documentation standards and AVEVA system conventions commonly used in mining and energy operations."
+      }
+    ],
+    "status": "PENDING APPROVAL"
+  }
+]

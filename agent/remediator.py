@@ -39,6 +39,8 @@ def suggest_fixes(discrepancies):
     suggestions = []
     
     for item in discrepancies:
+        print(f"  Calling API for tag: {item['tag']}")
+        
         prompt = f"""
         You are a master data specialist for a mining and energy company.
         
@@ -47,7 +49,8 @@ def suggest_fixes(discrepancies):
         Issues: {json.dumps(item['issues'], indent=2)}
         
         For each discrepancy, suggest the most likely correct value and explain why.
-        Respond in JSON format like this:
+        You must respond with ONLY a JSON object, no other text, no markdown, no explanation.
+        The JSON must look exactly like this:
         {{
             "tag": "tag name",
             "suggested_fixes": [
@@ -61,13 +64,29 @@ def suggest_fixes(discrepancies):
         """
         
         message = client.messages.create(
-            model="claude-opus-4-5",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}]
         )
         
-        suggestion = json.loads(message.content[0].text)
-        suggestions.append(suggestion)
+        raw = message.content[0].text.strip()
+        print(f"  Raw response: {raw[:100]}")
+        
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+        
+        try:
+            suggestion = json.loads(raw)
+            suggestions.append(suggestion)
+            print(f"  Successfully parsed suggestion for {item['tag']}")
+        except json.JSONDecodeError as e:
+            print(f"  Warning: could not parse response for tag {item['tag']}: {e}")
+            print(f"  Full raw response: {raw}")
+            continue
     
     return suggestions
 
@@ -85,20 +104,26 @@ def generate_approval_report(discrepancies, suggestions):
     with open("outputs/remediation_report.json", "w") as f:
         json.dump(report, f, indent=2)
     
-    print(f"Report generated: {len(report)} items require approval")
+    print(f"\nReport generated: {len(report)} items require approval")
     print("Review outputs/remediation_report.json before applying fixes")
 
 # Run the agent
 if __name__ == "__main__":
     print("Loading data sources...")
     sap, aveva, drawings = load_data()
+    print(f"SAP rows: {len(sap)}, AVEVA rows: {len(aveva)}, Drawing rows: {len(drawings)}")
     
     print("Comparing sources...")
     discrepancies = find_discrepancies(sap, aveva, drawings)
     print(f"Found {len(discrepancies)} discrepancies")
+    print(f"Discrepancies: {json.dumps(discrepancies, indent=2)}")
     
-    print("Generating fix suggestions...")
+    print("\nGenerating fix suggestions...")
     suggestions = suggest_fixes(discrepancies)
+    print(f"\nGot {len(suggestions)} suggestions")
     
-    print("Generating approval report...")
-    generate_approval_report(discrepancies, suggestions)
+    if len(suggestions) == 0:
+        print("WARNING: No suggestions were generated - check API key and model name")
+    else:
+        print("\nGenerating approval report...")
+        generate_approval_report(discrepancies, suggestions)
