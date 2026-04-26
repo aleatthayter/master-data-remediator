@@ -1,129 +1,137 @@
-import anthropic
-import pandas as pd
-import json
+from pathlib import Path
+from typing import List, Optional
 
-# Load data sources
-def load_data():
+import pandas as pd
+from langchain_anthropic import ChatAnthropic
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel
+
+
+class SuggestedFix(BaseModel):
+    field: str
+    sap_value: Optional[str]
+    aveva_value: Optional[str]
+    drawing_value: Optional[str]
+    suggested_value: str
+    reasoning: str
+
+
+class TagRemediation(BaseModel):
+    tag: str
+    fixes: List[SuggestedFix]
+    status: str = "PENDING APPROVAL"
+
+
+class RemediationReport(BaseModel):
+    items: List[TagRemediation]
+
+
+def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     sap = pd.read_csv("data/sample_sap_floc.csv")
     aveva = pd.read_csv("data/sample_aveva.csv")
     drawings = pd.read_csv("data/sample_drawings.csv")
     return sap, aveva, drawings
 
-# Compare sources and find discrepancies
-def find_discrepancies(sap, aveva, drawings):
-    discrepancies = []
-    
-    # Merge on equipment tag
+
+def find_discrepancies(
+    sap: pd.DataFrame,
+    aveva: pd.DataFrame,
+    drawings: pd.DataFrame,
+) -> List[dict]:
     merged = sap.merge(aveva, on="tag", suffixes=("_sap", "_aveva"), how="outer")
     merged = merged.merge(drawings, on="tag", suffixes=("", "_drawing"), how="outer")
-    
+
+    discrepancies = []
     for _, row in merged.iterrows():
         issues = []
-        if row.get("description_sap") != row.get("description_aveva"):
-            issues.append({
-                "field": "description",
-                "sap_value": row.get("description_sap"),
-                "aveva_value": row.get("description_aveva")
-            })
+        for field in ["description"]:
+            sap_val = row.get(f"{field}_sap")
+            aveva_val = row.get(f"{field}_aveva")
+            drawing_val = row.get(field)
+            values = {v for v in [sap_val, aveva_val, drawing_val] if pd.notna(v)}
+            if len(values) > 1:
+                issues.append({
+                    "field": field,
+                    "sap_value": sap_val if pd.notna(sap_val) else None,
+                    "aveva_value": aveva_val if pd.notna(aveva_val) else None,
+                    "drawing_value": drawing_val if pd.notna(drawing_val) else None,
+                })
         if issues:
-            discrepancies.append({
-                "tag": row["tag"],
-                "issues": issues
-            })
-    
+            discrepancies.append({"tag": row["tag"], "issues": issues})
+
     return discrepancies
 
-# Use Claude to suggest fixes
-def suggest_fixes(discrepancies):
-    client = anthropic.Anthropic()
-    suggestions = []
-    
+
+PROMPT = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        "You are a master data specialist for a mining and energy company. "
+        "For each discrepancy, suggest the most likely correct value and explain your reasoning. "
+        "Prefer values that follow standard engineering naming conventions.",
+    ),
+    (
+        "human",
+        "Tag: {tag}\n\nDiscrepancies:\n{issues}",
+    ),
+])
+
+
+def suggest_fixes(discrepancies: List[dict]) -> RemediationReport:
+    llm = ChatAnthropic(model="claude-sonnet-4-6", max_tokens=4096)
+    structured_llm = llm.with_structured_output(RemediationReport)
+
+    all_items = []
     for item in discrepancies:
-        print(f"  Calling API for tag: {item['tag']}")
-        
-        prompt = f"""
-        You are a master data specialist for a mining and energy company.
-        
-        The following equipment tag has inconsistent data across systems:
-        Tag: {item['tag']}
-        Issues: {json.dumps(item['issues'], indent=2)}
-        
-        For each discrepancy, suggest the most likely correct value and explain why.
-        You must respond with ONLY a JSON object, no other text, no markdown, no explanation.
-        The JSON must look exactly like this:
-        {{
-            "tag": "tag name",
-            "suggested_fixes": [
-                {{
-                    "field": "field name",
-                    "suggested_value": "your suggestion",
-                    "reasoning": "why this is correct"
-                }}
-            ]
-        }}
-        """
-        
-        message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}]
+        issues_text = "\n".join(
+            f"- {i['field']}: SAP={i['sap_value']}, AVEVA={i['aveva_value']}, Drawing={i['drawing_value']}"
+            for i in item["issues"]
         )
-        
-        raw = message.content[0].text.strip()
-        print(f"  Raw response: {raw[:100]}")
-        
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        raw = raw.strip()
-        
-        try:
-            suggestion = json.loads(raw)
-            suggestions.append(suggestion)
-            print(f"  Successfully parsed suggestion for {item['tag']}")
-        except json.JSONDecodeError as e:
-            print(f"  Warning: could not parse response for tag {item['tag']}: {e}")
-            print(f"  Full raw response: {raw}")
-            continue
-    
-    return suggestions
+        result: RemediationReport = structured_llm.invoke(
+            PROMPT.format_messages(tag=item["tag"], issues=issues_text)
+        )
+        all_items.extend(result.items)
 
-# Output report for human approval
-def generate_approval_report(discrepancies, suggestions):
-    report = []
-    for disc, sugg in zip(discrepancies, suggestions):
-        report.append({
-            "tag": disc["tag"],
-            "discrepancies_found": disc["issues"],
-            "suggested_fixes": sugg["suggested_fixes"],
-            "status": "PENDING APPROVAL"
-        })
-    
-    with open("outputs/remediation_report.json", "w") as f:
-        json.dump(report, f, indent=2)
-    
-    print(f"\nReport generated: {len(report)} items require approval")
-    print("Review outputs/remediation_report.json before applying fixes")
+    return RemediationReport(items=all_items)
 
-# Run the agent
-if __name__ == "__main__":
+
+def export_to_excel(report: RemediationReport, output_path: str):
+    rows = []
+    for item in report.items:
+        for fix in item.fixes:
+            rows.append({
+                "tag": item.tag,
+                "field": fix.field,
+                "sap_value": fix.sap_value,
+                "aveva_value": fix.aveva_value,
+                "drawing_value": fix.drawing_value,
+                "suggested_value": fix.suggested_value,
+                "reasoning": fix.reasoning,
+                "status": item.status,
+            })
+
+    df = pd.DataFrame(rows)
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="Remediation Report", index=False)
+
+
+def main():
     print("Loading data sources...")
     sap, aveva, drawings = load_data()
     print(f"SAP rows: {len(sap)}, AVEVA rows: {len(aveva)}, Drawing rows: {len(drawings)}")
-    
+
     print("Comparing sources...")
     discrepancies = find_discrepancies(sap, aveva, drawings)
     print(f"Found {len(discrepancies)} discrepancies")
-    print(f"Discrepancies: {json.dumps(discrepancies, indent=2)}")
-    
-    print("\nGenerating fix suggestions...")
-    suggestions = suggest_fixes(discrepancies)
-    print(f"\nGot {len(suggestions)} suggestions")
-    
-    if len(suggestions) == 0:
-        print("WARNING: No suggestions were generated - check API key and model name")
-    else:
-        print("\nGenerating approval report...")
-        generate_approval_report(discrepancies, suggestions)
+
+    print("Generating fix suggestions...")
+    report = suggest_fixes(discrepancies)
+
+    Path("outputs").mkdir(exist_ok=True)
+    output_path = "outputs/remediation_report.xlsx"
+    export_to_excel(report, output_path)
+    print(f"\nReport written to {output_path}")
+    print(f"{len(report.items)} items pending approval")
+
+
+if __name__ == "__main__":
+    main()

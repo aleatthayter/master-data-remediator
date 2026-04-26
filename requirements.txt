@@ -1,2 +1,4 @@
 anthropic
+langchain-anthropic
 pandas
+openpyxl
