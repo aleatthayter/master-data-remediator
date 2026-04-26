@@ -2,3 +2,6 @@ anthropic
 langchain-anthropic
 pandas
 openpyxl
+pillow
+ezdxf
+pymupdf

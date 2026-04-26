@@ -6,12 +6,16 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel
 
+from agent.drawing_loader import load_drawings_from_directory
+
 
 class SuggestedFix(BaseModel):
     field: str
     sap_value: Optional[str]
     aveva_value: Optional[str]
     drawing_value: Optional[str]
+    pdf_value: Optional[str]
+    cad_value: Optional[str]
     suggested_value: str
     reasoning: str
 
@@ -26,20 +30,33 @@ class RemediationReport(BaseModel):
     items: List[TagRemediation]
 
 
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     sap = pd.read_csv("data/sample_sap_floc.csv")
     aveva = pd.read_csv("data/sample_aveva.csv")
     drawings = pd.read_csv("data/sample_drawings.csv")
-    return sap, aveva, drawings
+    drawing_files = load_drawings_from_directory("data/drawings")
+    pdf_drawings = drawing_files[drawing_files["file_type"] == "pdf"][["tag", "description"]].copy()
+    cad_drawings = drawing_files[drawing_files["file_type"] == "cad"][["tag", "description"]].copy()
+    return sap, aveva, drawings, pdf_drawings, cad_drawings
 
 
 def find_discrepancies(
     sap: pd.DataFrame,
     aveva: pd.DataFrame,
     drawings: pd.DataFrame,
+    pdf_drawings: pd.DataFrame,
+    cad_drawings: pd.DataFrame,
 ) -> List[dict]:
     merged = sap.merge(aveva, on="tag", suffixes=("_sap", "_aveva"), how="outer")
     merged = merged.merge(drawings, on="tag", suffixes=("", "_drawing"), how="outer")
+    merged = merged.merge(
+        pdf_drawings.rename(columns={"description": "description_pdf"}),
+        on="tag", how="outer",
+    )
+    merged = merged.merge(
+        cad_drawings.rename(columns={"description": "description_cad"}),
+        on="tag", how="outer",
+    )
 
     discrepancies = []
     for _, row in merged.iterrows():
@@ -48,13 +65,17 @@ def find_discrepancies(
             sap_val = row.get(f"{field}_sap")
             aveva_val = row.get(f"{field}_aveva")
             drawing_val = row.get(field)
-            values = {v for v in [sap_val, aveva_val, drawing_val] if pd.notna(v)}
+            pdf_val = row.get(f"{field}_pdf")
+            cad_val = row.get(f"{field}_cad")
+            values = {v for v in [sap_val, aveva_val, drawing_val, pdf_val, cad_val] if pd.notna(v)}
             if len(values) > 1:
                 issues.append({
                     "field": field,
                     "sap_value": sap_val if pd.notna(sap_val) else None,
                     "aveva_value": aveva_val if pd.notna(aveva_val) else None,
                     "drawing_value": drawing_val if pd.notna(drawing_val) else None,
+                    "pdf_value": pdf_val if pd.notna(pdf_val) else None,
+                    "cad_value": cad_val if pd.notna(cad_val) else None,
                 })
         if issues:
             discrepancies.append({"tag": row["tag"], "issues": issues})
@@ -83,7 +104,8 @@ def suggest_fixes(discrepancies: List[dict]) -> RemediationReport:
     all_items = []
     for item in discrepancies:
         issues_text = "\n".join(
-            f"- {i['field']}: SAP={i['sap_value']}, AVEVA={i['aveva_value']}, Drawing={i['drawing_value']}"
+            f"- {i['field']}: SAP={i['sap_value']}, AVEVA={i['aveva_value']}, "
+            f"Drawing={i['drawing_value']}, PDF={i['pdf_value']}, CAD={i['cad_value']}"
             for i in item["issues"]
         )
         result: RemediationReport = structured_llm.invoke(
@@ -104,6 +126,8 @@ def export_to_excel(report: RemediationReport, output_path: str):
                 "sap_value": fix.sap_value,
                 "aveva_value": fix.aveva_value,
                 "drawing_value": fix.drawing_value,
+                "pdf_value": fix.pdf_value,
+                "cad_value": fix.cad_value,
                 "suggested_value": fix.suggested_value,
                 "reasoning": fix.reasoning,
                 "status": item.status,
@@ -116,11 +140,14 @@ def export_to_excel(report: RemediationReport, output_path: str):
 
 def main():
     print("Loading data sources...")
-    sap, aveva, drawings = load_data()
-    print(f"SAP rows: {len(sap)}, AVEVA rows: {len(aveva)}, Drawing rows: {len(drawings)}")
+    sap, aveva, drawings, pdf_drawings, cad_drawings = load_data()
+    print(
+        f"SAP rows: {len(sap)}, AVEVA rows: {len(aveva)}, Drawing rows: {len(drawings)}, "
+        f"PDF drawing rows: {len(pdf_drawings)}, CAD rows: {len(cad_drawings)}"
+    )
 
     print("Comparing sources...")
-    discrepancies = find_discrepancies(sap, aveva, drawings)
+    discrepancies = find_discrepancies(sap, aveva, drawings, pdf_drawings, cad_drawings)
     print(f"Found {len(discrepancies)} discrepancies")
 
     print("Generating fix suggestions...")
