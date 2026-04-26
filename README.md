@@ -1,31 +1,51 @@
-# Agent 1: Master Data Remediator
+# Master Data Remediator
 
-An AI agent that reconciles master data across engineering and operational 
-systems in mining and energy companies.
+An AI agent that reconciles equipment master data across SAP FLOC, AVEVA, drawing registers, PDF drawings, and CAD/DXF files — and proposes corrections for human approval.
 
 ## The Problem
-Mining and energy companies maintain critical equipment data across multiple 
-systems — SAP FLOC, AVEVA, engineering drawings, 3D models — which frequently 
-fall out of sync. Inconsistent master data leads to poor maintenance decisions, 
-compliance risk, and operational inefficiency.
 
-## What This Agent Does
-1. Ingests data from multiple source systems
-2. Identifies discrepancies across sources
-3. Uses AI to suggest the most likely correct value
-4. Generates a report for human approval before any changes are applied
+Mining and energy operators maintain equipment tag data across multiple disconnected systems. The same physical asset can have different descriptions in SAP, AVEVA, and a drawing register, and no one system is authoritative. Inconsistent master data causes poor maintenance decisions, compliance gaps, and unreliable reporting.
 
-## How to Run
-1. Install dependencies: `pip install -r requirements.txt`
-2. Set your Anthropic API key: `export ANTHROPIC_API_KEY=your_key_here`
-3. Run the agent: `python agent/remediator.py`
-4. Review the output in `outputs/remediation_report.json`
+## How It Works
 
-## Data Sources Supported
-- SAP FLOC data
-- AVEVA / SmartPlant metadata
-- Engineering drawing registers
+1. **Ingests** data from up to five sources: SAP FLOC export, AVEVA metadata, drawing register CSV, PDF drawings (via Claude Vision), and DXF CAD files (via ezdxf)
+2. **Compares** tag-by-tag across all sources and flags discrepancies
+3. **Suggests** the most likely correct value using Claude, with Pydantic-structured output covering the proposed value, supporting sources, and reasoning
+4. **Outputs** an Excel remediation report — no changes are applied without human sign-off
 
-## Note
-This is a proof of concept. Production implementation would require 
-additional work around governance, system integration, and change management.
+## Tech Stack
+
+Python · Claude (Anthropic) · Pydantic · ezdxf · openpyxl
+
+## Setup
+
+```bash
+pip install -r requirements.txt
+export ANTHROPIC_API_KEY=your_key_here
+```
+
+## Usage
+
+```bash
+python agent/remediator.py
+```
+
+Output is written to `outputs/remediation_report.xlsx`.
+
+## Data Sources
+
+Place input files in `data/`:
+
+| File | Format | Source |
+|------|--------|--------|
+| `floc_export.csv` | CSV | SAP FLOC |
+| `aveva_export.csv` | CSV | AVEVA / SmartPlant |
+| `drawing_register.csv` | CSV | Drawing management system |
+| `drawings/` | PDF or PNG | Scanned P&IDs, equipment schedules |
+| `cad/` | DXF | CAD drawing files |
+
+Sources are optional — the agent compares across whichever are provided.
+
+---
+
+*Proof of concept. Production use would require additional work on governance, system integration, and change management.*
